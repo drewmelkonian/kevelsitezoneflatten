@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Data Flattener</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/papaparse@5.3.0/papaparse.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" xintegrity="sha512-Fo3rlrZj/k7ujlYkPz+2mS42LgJb8Lq2lWwB7tI1bFhGvE6T7+A5tL93X+4bU+F7g9+Nl+W8Z4X5z" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">CSV Data Flattener</h1>
+        <p class="text-center text-gray-600 mb-8">
+            Upload a CSV file with `id` and `site/zone` columns to flatten the `site/zone` data.
+        </p>
+
+        <div class="flex flex-col items-center space-y-6">
+            <label id="file-label" class="w-full">
+                <input
+                    type="file"
+                    id="file-input"
+                    accept=".csv"
+                    class="hidden"
+                />
+                <div class="flex items-center justify-center w-full px-4 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors shadow-md">
+                    <span id="file-status">Choose CSV File</span>
+                </div>
+            </label>
+
+            <button
+                id="process-button"
+                class="w-full px-4 py-3 text-lg font-medium text-white bg-green-600 rounded-lg shadow-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                disabled
+            >
+                Process and Flatten
+            </button>
+        </div>
+
+        <div id="message-box" class="mt-8 text-center hidden"></div>
+
+        <div id="download-box" class="mt-8 text-center hidden">
+            <p class="mb-2 font-medium text-blue-700">Processing Complete!</p>
+            <a
+                id="download-link"
+                href="#"
+                download="flattened_data.csv"
+                class="inline-block px-6 py-2 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-md"
+            >
+                <i class="fas fa-download mr-2"></i>Download Flattened CSV
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // DOM element references
+        const fileInput = document.getElementById('file-input');
+        const fileStatus = document.getElementById('file-status');
+        const processButton = document.getElementById('process-button');
+        const messageBox = document.getElementById('message-box');
+        const downloadBox = document.getElementById('download-box');
+        const downloadLink = document.getElementById('download-link');
+
+        // Helper function to show a message in the UI
+        const showMessage = (type, text) => {
+            messageBox.classList.remove('hidden');
+            let baseClasses = "mt-8 text-center p-4 rounded-lg";
+            if (type === 'error') {
+                messageBox.className = `${baseClasses} bg-red-100 text-red-700 border border-red-300`;
+                messageBox.innerHTML = `<p class="font-medium">Error:</p><p>${text}</p>`;
+            } else if (type === 'info') {
+                messageBox.className = `${baseClasses} bg-blue-100 text-blue-700 border border-blue-300`;
+                messageBox.innerHTML = `<p class="font-medium">Info:</p><p>${text}</p>`;
+            }
+        };
+
+        // Helper function to hide the message and download boxes
+        const hideAll = () => {
+            messageBox.classList.add('hidden');
+            downloadBox.classList.add('hidden');
+        };
+
+        // Helper function to clean and parse the malformed JSON string
+        const cleanAndParseJson = (text) => {
+            // Step 1: Remove all whitespace and newline characters
+            let no_whitespace_text = text.replace(/\s/g, '');
+            
+            // Step 2: Remove the incorrect outer curly braces
+            let cleaned_text = no_whitespace_text.trim();
+            if (cleaned_text.startsWith('{{') && cleaned_text.endsWith('}}')) {
+                cleaned_text = cleaned_text.slice(1, -1);
+            }
+            
+            // Step 3: Insert commas between dictionaries by replacing '}{' with '},{'
+            cleaned_text = cleaned_text.replace(/}{/g, '},{');
+
+            // Step 4: Insert commas between key-value pairs inside the dictionaries
+            // This regex handles cases where a comma is missing between a value and the next key
+            cleaned_text = cleaned_text.replace(/(\d+)"S/g, '$1,"S');
+            
+            // Step 5: Add square brackets to make it a valid JSON list
+            const final_json_string = `[${cleaned_text}]`;
+
+            // Step 6: Parse the cleaned string into a JavaScript object
+            return JSON.parse(final_json_string);
+        };
+
+        // Event listener for file input change
+        fileInput.addEventListener('change', (e) => {
+            const selectedFile = e.target.files[0];
+            if (selectedFile) {
+                fileStatus.textContent = `File selected: ${selectedFile.name}`;
+                processButton.disabled = false;
+                hideAll();
+            } else {
+                fileStatus.textContent = 'Choose CSV File';
+                processButton.disabled = true;
+            }
+        });
+
+        // Event listener for the process button click
+        processButton.addEventListener('click', () => {
+            if (!fileInput.files[0]) {
+                showMessage('error', 'Please select a file first.');
+                return;
+            }
+
+            hideAll();
+            processButton.disabled = true;
+            processButton.textContent = 'Processing...';
+
+            const file = fileInput.files[0];
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    const data = results.data;
+                    const errors = results.errors;
+
+                    if (errors.length > 0) {
+                        showMessage('error', 'CSV parsing error. Please check your file.');
+                        processButton.disabled = false;
+                        processButton.textContent = 'Process and Flatten';
+                        return;
+                    }
+                    
+                    try {
+                        const flattenedData = [];
+                        
+                        for (const row of data) {
+                            const originalId = row.id;
+                            const siteZoneString = row['site/zone'];
+
+                            if (originalId && siteZoneString) {
+                                const siteZoneList = cleanAndParseJson(siteZoneString);
+                                
+                                for (const item of siteZoneList) {
+                                    flattenedData.push({
+                                        id: originalId,
+                                        ZoneId: item.ZoneId,
+                                        SiteId: item.SiteId
+                                    });
+                                }
+                            }
+                        }
+                        
+                        const flattenedCsv = Papa.unparse(flattenedData);
+                        
+                        const blob = new Blob([flattenedCsv], { type: 'text/csv;charset=utf-8;' });
+                        const url = URL.createObjectURL(blob);
+                        
+                        downloadLink.href = url;
+                        downloadBox.classList.remove('hidden');
+                        
+                        processButton.disabled = false;
+                        processButton.textContent = 'Process and Flatten';
+
+                    } catch (e) {
+                        showMessage('error', e.message || "An unexpected error occurred during processing.");
+                        processButton.disabled = false;
+                        processButton.textContent = 'Process and Flatten';
+                    }
+                },
+            });
+        });
+    </script>
+</body>
+</html>
